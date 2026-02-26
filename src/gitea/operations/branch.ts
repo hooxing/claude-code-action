@@ -125,6 +125,6 @@ export async function setupGiteaBranch(
     };
   } catch (error) {
     console.error("Error in Gitea branch setup:", error);
-    process.exit(1);
+    throw error;
   }
 }

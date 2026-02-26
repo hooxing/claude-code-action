@@ -60,7 +60,7 @@ export function parseGiteaContext(): GitHubContext {
       branchPrefix: process.env.BRANCH_PREFIX ?? "claude/",
       branchNameTemplate: process.env.BRANCH_NAME_TEMPLATE,
       useStickyComment: process.env.USE_STICKY_COMMENT === "true",
-      useCommitSigning: false, // Gitea does not support API-based commit signing the same way
+      useCommitSigning: false, // Gitea does not support GitHub API-based commit signing; use ssh_signing_key instead
       sshSigningKey: process.env.SSH_SIGNING_KEY || "",
       botId: process.env.BOT_ID ?? String(GITEA_DEFAULT_BOT_ID),
       botName: process.env.BOT_NAME ?? GITEA_DEFAULT_BOT_NAME,

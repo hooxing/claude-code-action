@@ -14,6 +14,7 @@ import type {
   GitHubIssue,
   GitHubPullRequest,
   GitHubReview,
+  GitHubReviewComment,
 } from "../../github/types";
 import type { GitHubFileWithSHA } from "../../github/data/fetcher";
 import {
@@ -121,7 +122,7 @@ export async function fetchGiteaData(
 
         const normalisedReviews: GitHubReview[] = await Promise.all(
           reviews.map(async (r) => {
-            let reviewComments: GitHubComment[] = [];
+            let reviewComments: GitHubReviewComment[] = [];
             try {
               const rc = await client.getPullRequestReviewComments(
                 owner,
@@ -138,7 +139,7 @@ export async function fetchGiteaData(
                 updatedAt: c.updated_at,
                 path: c.path,
                 line: c.line,
-              })) as unknown as GitHubComment[];
+              }));
             } catch {
               // Review comment fetch may fail; continue
             }
@@ -150,7 +151,7 @@ export async function fetchGiteaData(
               body: r.body || "",
               state: r.state,
               submittedAt: r.submitted_at,
-              comments: { nodes: reviewComments as any },
+              comments: { nodes: reviewComments },
             } as GitHubReview;
           }),
         );
