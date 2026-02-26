@@ -54,12 +54,19 @@ If you haven't already enabled Gitea Actions:
 
 ### 1. Store Secrets
 
-In your Gitea repository, go to **Settings → Actions → Secrets** and add:
+> **Note**: Gitea does not allow secret names starting with `GITEA_` or `GITHUB_`. Use a name like `CLAUDE_PAT` instead.
+
+You can add secrets at either the **user level** or the **repository level**:
+
+- **User-level secrets**: Click your **avatar** (top right) → **Settings** → **Actions** → **Secrets**. These secrets are available to all your repositories.
+- **Repository-level secrets**: Go to your repository → **Settings** → **Actions** → **Secrets**. These secrets are only available to this repository.
+
+Add the following secrets:
 
 | Secret Name         | Value                                                                                                       |
 | ------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `ANTHROPIC_API_KEY` | Your Anthropic API key                                                                                      |
-| `GITEA_PAT`         | A Gitea personal access token with `repo` scope (optional if the built-in token has sufficient permissions) |
+| `CLAUDE_PAT`        | A Gitea personal access token with `repo` scope (optional if the built-in token has sufficient permissions) |
 
 ### 2. Create a Workflow File
 
@@ -86,7 +93,7 @@ jobs:
         uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.GITEA_PAT }}
+          gitea_token: ${{ secrets.CLAUDE_PAT }}
           trigger_phrase: "@claude"
 ```
 
@@ -204,7 +211,7 @@ jobs:
       - uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.GITEA_PAT }}
+          gitea_token: ${{ secrets.CLAUDE_PAT }}
           trigger_phrase: "@claude"
           track_progress: "true"
 ```
@@ -225,7 +232,7 @@ jobs:
       - uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.GITEA_PAT }}
+          gitea_token: ${{ secrets.CLAUDE_PAT }}
           label_trigger: "claude-task"
           track_progress: "true"
 ```
@@ -246,7 +253,7 @@ jobs:
       - uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.GITEA_PAT }}
+          gitea_token: ${{ secrets.CLAUDE_PAT }}
           assignee_trigger: "@claude-bot"
           track_progress: "true"
 ```
@@ -271,7 +278,7 @@ jobs:
       - uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.GITEA_PAT }}
+          gitea_token: ${{ secrets.CLAUDE_PAT }}
           prompt: |
             Review this pull request for:
             - Code quality issues
@@ -296,7 +303,7 @@ jobs:
       - uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.GITEA_PAT }}
+          gitea_token: ${{ secrets.CLAUDE_PAT }}
           prompt: |
             Look through the codebase for any TODO comments
             and try to resolve them. Create a branch with your fixes.
@@ -337,6 +344,8 @@ jobs:
 | `show_full_output`               | `false`          | Show full Claude output (may contain secrets)    |
 | `plugins`                        | —                | Plugin names to install                          |
 | `plugin_marketplaces`            | —                | Plugin marketplace URLs                          |
+| `gitea_api_url`                  | —                | Custom Gitea API base URL                        |
+| `gitea_server_url`               | —                | Custom Gitea server URL                          |
 
 ### Branch Name Template Variables
 
@@ -387,7 +396,7 @@ jobs:
 ```yaml
 - uses: anthropics/claude-code-action/action-gitea.yml@main
   with:
-    gitea_token: ${{ secrets.GITEA_PAT }}
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
     use_bedrock: "true"
   env:
     AWS_REGION: us-east-1
@@ -400,7 +409,7 @@ jobs:
 ```yaml
 - uses: anthropics/claude-code-action/action-gitea.yml@main
   with:
-    gitea_token: ${{ secrets.GITEA_PAT }}
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
     use_vertex: "true"
   env:
     ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project
@@ -413,7 +422,7 @@ jobs:
 ```yaml
 - uses: anthropics/claude-code-action/action-gitea.yml@main
   with:
-    gitea_token: ${{ secrets.GITEA_PAT }}
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
     ssh_signing_key: ${{ secrets.SSH_SIGNING_KEY }}
 ```
@@ -423,7 +432,7 @@ jobs:
 ```yaml
 - uses: anthropics/claude-code-action/action-gitea.yml@main
   with:
-    gitea_token: ${{ secrets.GITEA_PAT }}
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
     anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
     bot_name: "my-claude-bot"
     bot_id: "12345"
@@ -431,7 +440,18 @@ jobs:
 
 ### Using a Custom Gitea Server URL
 
-Set environment variables in your workflow:
+You can provide the custom Gitea URL directly as action inputs (recommended):
+
+```yaml
+- uses: anthropics/claude-code-action/action-gitea.yml@main
+  with:
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    gitea_api_url: https://your-gitea.example.com/api/v1
+    gitea_server_url: https://your-gitea.example.com
+```
+
+Alternatively, set environment variables in your workflow:
 
 ```yaml
 env:
@@ -455,7 +475,7 @@ Or set them in the runner environment before the action runs.
 
 ```yaml
 with:
-  gitea_token: ${{ secrets.GITEA_PAT }}
+  gitea_token: ${{ secrets.CLAUDE_PAT }}
 ```
 
 #### "Actor does not have write permissions"
@@ -539,7 +559,7 @@ jobs:
       - uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.GITEA_PAT }}
+          gitea_token: ${{ secrets.CLAUDE_PAT }}
           trigger_phrase: "@claude"
           label_trigger: "claude"
           assignee_trigger: "@claude-bot"
@@ -555,7 +575,7 @@ jobs:
       - uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.GITEA_PAT }}
+          gitea_token: ${{ secrets.CLAUDE_PAT }}
           prompt: "Review this PR for code quality, potential bugs, and security issues."
 ```
 

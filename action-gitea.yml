@@ -125,6 +125,14 @@ inputs:
     description: "Newline-separated list of Claude Code plugin marketplace Git URLs"
     required: false
     default: ""
+  gitea_api_url:
+    description: "Custom Gitea API base URL (e.g. https://your-gitea.example.com/api/v1). Falls back to GITEA_API_URL env var."
+    required: false
+    default: ""
+  gitea_server_url:
+    description: "Custom Gitea server URL (e.g. https://your-gitea.example.com). Falls back to GITEA_SERVER_URL env var."
+    required: false
+    default: ""
 
 outputs:
   execution_file:
@@ -177,8 +185,8 @@ runs:
       env:
         # Gitea-specific
         GITEA_TOKEN: ${{ inputs.gitea_token }}
-        GITEA_API_URL: ${{ env.GITEA_API_URL }}
-        GITEA_SERVER_URL: ${{ env.GITEA_SERVER_URL }}
+        GITEA_API_URL: ${{ inputs.gitea_api_url || env.GITEA_API_URL }}
+        GITEA_SERVER_URL: ${{ inputs.gitea_server_url || env.GITEA_SERVER_URL }}
 
         # Prepare inputs
         PROMPT: ${{ inputs.prompt }}
