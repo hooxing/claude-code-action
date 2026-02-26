@@ -1,0 +1,240 @@
+name: "Claude Code Action for Gitea"
+description: "Flexible Gitea automation platform with Claude. Auto-detects mode: @claude mentions on issues/PRs (tag mode) or custom automation via prompt (agent mode). Requires Gitea Actions runner."
+branding:
+  icon: "at-sign"
+  color: "orange"
+
+inputs:
+  trigger_phrase:
+    description: "The trigger phrase to look for in comments or issue body"
+    required: false
+    default: "@claude"
+  assignee_trigger:
+    description: "The assignee username that triggers the action"
+    required: false
+  label_trigger:
+    description: "The label that triggers the action"
+    required: false
+    default: "claude"
+  base_branch:
+    description: "The branch to use as the base/source when creating new branches"
+    required: false
+  branch_prefix:
+    description: "The prefix to use for Claude branches"
+    required: false
+    default: "claude/"
+  branch_name_template:
+    description: "Template for branch naming. Available variables: {{prefix}}, {{entityType}}, {{entityNumber}}, {{timestamp}}, {{sha}}, {{label}}, {{description}}"
+    required: false
+    default: ""
+  allowed_bots:
+    description: "Comma-separated list of allowed bot usernames, or '*' to allow all bots."
+    required: false
+    default: ""
+  allowed_non_write_users:
+    description: "Comma-separated list of usernames to allow without write permissions, or '*' to allow all users."
+    required: false
+    default: ""
+  include_comments_by_actor:
+    description: "Comma-separated list of actor usernames to INCLUDE in comments."
+    required: false
+    default: ""
+  exclude_comments_by_actor:
+    description: "Comma-separated list of actor usernames to EXCLUDE from comments."
+    required: false
+    default: ""
+
+  # Claude Code configuration
+  prompt:
+    description: "Instructions for Claude. Can be a direct prompt or custom template."
+    required: false
+    default: ""
+  settings:
+    description: "Claude Code settings as JSON string or path to settings JSON file"
+    required: false
+    default: ""
+
+  # Auth configuration
+  anthropic_api_key:
+    description: "Anthropic API key (required for direct API, not needed for Bedrock/Vertex)"
+    required: false
+  claude_code_oauth_token:
+    description: "Claude Code OAuth token (alternative to anthropic_api_key)"
+    required: false
+  gitea_token:
+    description: "Gitea personal access token with repo permissions. Falls back to the built-in GITHUB_TOKEN."
+    required: false
+  use_bedrock:
+    description: "Use Amazon Bedrock instead of direct Anthropic API"
+    required: false
+    default: "false"
+  use_vertex:
+    description: "Use Google Vertex AI instead of direct Anthropic API"
+    required: false
+    default: "false"
+
+  claude_args:
+    description: "Additional arguments to pass directly to Claude CLI"
+    required: false
+    default: ""
+  use_sticky_comment:
+    description: "Use just one comment to deliver issue/PR comments"
+    required: false
+    default: "false"
+  ssh_signing_key:
+    description: "SSH private key for signing commits."
+    required: false
+    default: ""
+  bot_id:
+    description: "User ID to use for git operations (defaults to 0)"
+    required: false
+    default: "0"
+  bot_name:
+    description: "Username to use for git operations (defaults to claude-bot)"
+    required: false
+    default: "claude-bot"
+  track_progress:
+    description: "Force tag mode with tracking comments for pull_request and issue events."
+    required: false
+    default: "false"
+  include_fix_links:
+    description: "Include 'Fix this' links in PR code review feedback"
+    required: false
+    default: "true"
+  path_to_claude_code_executable:
+    description: "Optional path to a custom Claude Code executable."
+    required: false
+    default: ""
+  path_to_bun_executable:
+    description: "Optional path to a custom Bun executable."
+    required: false
+    default: ""
+  display_report:
+    description: "Whether to display the Claude Code Report in Step Summary."
+    required: false
+    default: "true"
+  show_full_output:
+    description: "Show full JSON output from Claude Code. WARNING: may contain secrets."
+    required: false
+    default: "false"
+  plugins:
+    description: "Newline-separated list of Claude Code plugin names to install"
+    required: false
+    default: ""
+  plugin_marketplaces:
+    description: "Newline-separated list of Claude Code plugin marketplace Git URLs"
+    required: false
+    default: ""
+
+outputs:
+  execution_file:
+    description: "Path to the Claude Code execution output file"
+    value: ${{ steps.run.outputs.execution_file }}
+  branch_name:
+    description: "The branch created by Claude Code for this execution"
+    value: ${{ steps.run.outputs.branch_name }}
+  gitea_token:
+    description: "The Gitea token used by the action"
+    value: ${{ steps.run.outputs.gitea_token }}
+  structured_output:
+    description: "JSON string containing all structured output fields"
+    value: ${{ steps.run.outputs.structured_output }}
+  session_id:
+    description: "The Claude Code session ID for resuming conversations"
+    value: ${{ steps.run.outputs.session_id }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Bun
+      if: inputs.path_to_bun_executable == ''
+      shell: bash
+      run: |
+        curl -fsSL https://bun.sh/install | bash
+        echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+    - name: Setup Custom Bun Path
+      if: inputs.path_to_bun_executable != ''
+      shell: bash
+      env:
+        PATH_TO_BUN_EXECUTABLE: ${{ inputs.path_to_bun_executable }}
+      run: |
+        echo "Using custom Bun executable: $PATH_TO_BUN_EXECUTABLE"
+        BUN_DIR=$(dirname "$PATH_TO_BUN_EXECUTABLE")
+        echo "$BUN_DIR" >> "$GITHUB_PATH"
+
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        cd ${GITHUB_ACTION_PATH}
+        bun install --production
+
+    - name: Run Claude Code Action (Gitea)
+      id: run
+      shell: bash
+      run: |
+        bun run ${GITHUB_ACTION_PATH}/src/entrypoints/run-gitea.ts
+      env:
+        # Gitea-specific
+        GITEA_TOKEN: ${{ inputs.gitea_token }}
+        GITEA_API_URL: ${{ env.GITEA_API_URL }}
+        GITEA_SERVER_URL: ${{ env.GITEA_SERVER_URL }}
+
+        # Prepare inputs
+        PROMPT: ${{ inputs.prompt }}
+        TRIGGER_PHRASE: ${{ inputs.trigger_phrase }}
+        ASSIGNEE_TRIGGER: ${{ inputs.assignee_trigger }}
+        LABEL_TRIGGER: ${{ inputs.label_trigger }}
+        BASE_BRANCH: ${{ inputs.base_branch }}
+        BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+        BRANCH_NAME_TEMPLATE: ${{ inputs.branch_name_template }}
+        OVERRIDE_GITHUB_TOKEN: ${{ inputs.gitea_token }}
+        ALLOWED_BOTS: ${{ inputs.allowed_bots }}
+        ALLOWED_NON_WRITE_USERS: ${{ inputs.allowed_non_write_users }}
+        INCLUDE_COMMENTS_BY_ACTOR: ${{ inputs.include_comments_by_actor }}
+        EXCLUDE_COMMENTS_BY_ACTOR: ${{ inputs.exclude_comments_by_actor }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        USE_STICKY_COMMENT: ${{ inputs.use_sticky_comment }}
+        SSH_SIGNING_KEY: ${{ inputs.ssh_signing_key }}
+        BOT_ID: ${{ inputs.bot_id }}
+        BOT_NAME: ${{ inputs.bot_name }}
+        TRACK_PROGRESS: ${{ inputs.track_progress }}
+        INCLUDE_FIX_LINKS: ${{ inputs.include_fix_links }}
+        CLAUDE_ARGS: ${{ inputs.claude_args }}
+
+        # Base-action inputs
+        INPUT_PROMPT_FILE: ${{ runner.temp }}/claude-prompts/claude-prompt.txt
+        INPUT_SETTINGS: ${{ inputs.settings }}
+        INPUT_PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
+        INPUT_PATH_TO_BUN_EXECUTABLE: ${{ inputs.path_to_bun_executable }}
+        INPUT_SHOW_FULL_OUTPUT: ${{ inputs.show_full_output }}
+        DISPLAY_REPORT: ${{ inputs.display_report }}
+        INPUT_PLUGINS: ${{ inputs.plugins }}
+        INPUT_PLUGIN_MARKETPLACES: ${{ inputs.plugin_marketplaces }}
+        PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
+
+        # Provider configuration
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        ANTHROPIC_BASE_URL: ${{ env.ANTHROPIC_BASE_URL }}
+        CLAUDE_CODE_USE_BEDROCK: ${{ inputs.use_bedrock == 'true' && '1' || '' }}
+        CLAUDE_CODE_USE_VERTEX: ${{ inputs.use_vertex == 'true' && '1' || '' }}
+
+        # AWS configuration
+        AWS_REGION: ${{ env.AWS_REGION }}
+        AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+        AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
+        ANTHROPIC_BEDROCK_BASE_URL: ${{ env.ANTHROPIC_BEDROCK_BASE_URL }}
+
+        # GCP configuration
+        ANTHROPIC_VERTEX_PROJECT_ID: ${{ env.ANTHROPIC_VERTEX_PROJECT_ID }}
+        CLOUD_ML_REGION: ${{ env.CLOUD_ML_REGION }}
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+        ANTHROPIC_VERTEX_BASE_URL: ${{ env.ANTHROPIC_VERTEX_BASE_URL }}
+
+    - name: Cleanup SSH signing key
+      if: always() && inputs.ssh_signing_key != ''
+      shell: bash
+      run: |
+        bun run ${GITHUB_ACTION_PATH}/src/entrypoints/cleanup-ssh-signing.ts
