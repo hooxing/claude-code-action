@@ -243,6 +243,39 @@ Claude does **not** have access to execute arbitrary Bash commands by default. I
 
 **Note**: The base GitHub tools are always included. Use `--allowedTools` to add additional tools (including specific Bash commands), and `--disallowedTools` to prevent specific tools from being used.
 
+## Custom Anthropic Base URL
+
+You can specify a custom base URL for the Anthropic API using the `anthropic_base_url` input. This is useful when:
+
+- Using an **API proxy** to route requests through a self-hosted or third-party proxy server
+- Connecting to a **self-hosted compatible endpoint** that implements the Anthropic API
+- Using a **third-party service** that provides access to Anthropic models via a custom URL
+
+### Setting via Input (Recommended)
+
+The recommended approach is to pass it as an action input, optionally using a secret to keep the URL confidential:
+
+```yaml
+- uses: anthropics/claude-code-action@v1
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
+```
+
+### Setting via Environment Variable
+
+Alternatively, you can set it as an environment variable in your workflow. The `anthropic_base_url` input takes precedence over the `ANTHROPIC_BASE_URL` environment variable if both are provided:
+
+```yaml
+- uses: anthropics/claude-code-action@v1
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+  env:
+    ANTHROPIC_BASE_URL: https://your-proxy.example.com
+```
+
+> **Security tip**: If the base URL contains sensitive information (e.g., embedded tokens or internal hostnames), store it as a secret (`secrets.ANTHROPIC_BASE_URL`) rather than hardcoding it in your workflow.
+
 ## Custom Model
 
 Specify a Claude model using `claude_args`:

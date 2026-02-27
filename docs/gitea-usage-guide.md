@@ -178,6 +178,7 @@ The action uses a Gitea Personal Access Token (PAT) for all API operations. Ther
 The Claude Code CLI requires authentication with Anthropic:
 
 - **`anthropic_api_key`**: Direct API key from Anthropic.
+- **`anthropic_base_url`**: Optional custom base URL for the Anthropic API (useful for proxies or alternative endpoints). Can also be set via the `ANTHROPIC_BASE_URL` environment variable.
 - **`claude_code_oauth_token`**: OAuth token (alternative).
 - **Bedrock/Vertex**: Cloud provider authentication (set `use_bedrock` or `use_vertex` to `true`).
 
@@ -328,6 +329,7 @@ jobs:
 | `prompt`                         | —                | Direct prompt for Claude (enables agent mode)    |
 | `settings`                       | —                | Claude Code settings JSON or file path           |
 | `anthropic_api_key`              | —                | Anthropic API key                                |
+| `anthropic_base_url`             | —                | Custom Anthropic API base URL (e.g. for proxies) |
 | `claude_code_oauth_token`        | —                | OAuth token alternative                          |
 | `gitea_token`                    | —                | Gitea PAT with repo permissions                  |
 | `use_bedrock`                    | `false`          | Use Amazon Bedrock                               |
@@ -460,6 +462,31 @@ env:
 ```
 
 Or set them in the runner environment before the action runs.
+
+### Using a Custom Anthropic Base URL
+
+You can set a custom Anthropic API base URL directly as an action input (recommended). This is useful when using an API proxy, a self-hosted compatible endpoint, or a third-party service that provides access to Anthropic models:
+
+```yaml
+- uses: anthropics/claude-code-action/action-gitea.yml@main
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
+```
+
+Alternatively, you can set it as an environment variable in your workflow:
+
+```yaml
+- uses: anthropics/claude-code-action/action-gitea.yml@main
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
+  env:
+    ANTHROPIC_BASE_URL: https://your-proxy.example.com
+```
+
+> **Security tip**: Store the base URL as a secret (e.g., `secrets.ANTHROPIC_BASE_URL`) if it contains sensitive endpoint information.
 
 ---
 

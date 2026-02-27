@@ -58,6 +58,10 @@ inputs:
   anthropic_api_key:
     description: "Anthropic API key (required for direct API, not needed for Bedrock/Vertex/Foundry)"
     required: false
+  anthropic_base_url:
+    description: "Custom Anthropic API base URL (e.g. https://your-proxy.example.com). Useful for API proxies or custom endpoints. Can also be set via the ANTHROPIC_BASE_URL environment variable."
+    required: false
+    default: ""
   claude_code_oauth_token:
     description: "Claude Code OAuth token (alternative to anthropic_api_key)"
     required: false
@@ -233,7 +237,7 @@ runs:
         # Provider configuration
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
-        ANTHROPIC_BASE_URL: ${{ env.ANTHROPIC_BASE_URL }}
+        ANTHROPIC_BASE_URL: ${{ inputs.anthropic_base_url || env.ANTHROPIC_BASE_URL }}
         ANTHROPIC_CUSTOM_HEADERS: ${{ env.ANTHROPIC_CUSTOM_HEADERS }}
         CLAUDE_CODE_USE_BEDROCK: ${{ inputs.use_bedrock == 'true' && '1' || '' }}
         CLAUDE_CODE_USE_VERTEX: ${{ inputs.use_vertex == 'true' && '1' || '' }}

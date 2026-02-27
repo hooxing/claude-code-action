@@ -178,6 +178,7 @@ Claude 将创建一条跟踪评论并进行回复。
 Claude Code CLI 需要 Anthropic 认证：
 
 - **`anthropic_api_key`**：直接使用 Anthropic API 密钥。
+- **`anthropic_base_url`**：可选，自定义 Anthropic API Base URL（用于 API 代理或自定义端点）。也可以通过 `ANTHROPIC_BASE_URL` 环境变量设置。
 - **`claude_code_oauth_token`**：OAuth 令牌（替代方案）。
 - **Bedrock/Vertex**：云提供商认证（将 `use_bedrock` 或 `use_vertex` 设置为 `true`）。
 
@@ -328,6 +329,7 @@ jobs:
 | `prompt`                         | —            | Claude 的直接提示词（启用 Agent 模式）       |
 | `settings`                       | —            | Claude Code 设置 JSON 或文件路径             |
 | `anthropic_api_key`              | —            | Anthropic API 密钥                           |
+| `anthropic_base_url`             | —            | 自定义 Anthropic API Base URL（用于代理等）  |
 | `claude_code_oauth_token`        | —            | OAuth 令牌替代方案                           |
 | `gitea_token`                    | —            | 具有 repo 权限的 Gitea PAT                   |
 | `use_bedrock`                    | `false`      | 使用 Amazon Bedrock                          |
@@ -460,6 +462,31 @@ env:
 ```
 
 也可以在 Action 运行前在 Runner 环境中设置这些变量。
+
+### 自定义 Anthropic API Base URL
+
+你可以直接通过 Action 输入参数设置自定义 Anthropic API Base URL（推荐）。这在使用 API 代理、自托管兼容端点或提供 Anthropic 模型访问的第三方服务时非常有用：
+
+```yaml
+- uses: anthropics/claude-code-action/action-gitea.yml@main
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
+```
+
+也可以在工作流中通过环境变量设置：
+
+```yaml
+- uses: anthropics/claude-code-action/action-gitea.yml@main
+  with:
+    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+    gitea_token: ${{ secrets.CLAUDE_PAT }}
+  env:
+    ANTHROPIC_BASE_URL: https://your-proxy.example.com
+```
+
+> **安全提示**：如果 Base URL 包含敏感信息，建议将其存储为密钥（如 `secrets.ANTHROPIC_BASE_URL`）。
 
 ---
 
