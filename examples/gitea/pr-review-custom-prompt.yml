@@ -1,0 +1,49 @@
+name: Claude 自动审阅 PR
+
+# Agent mode: automatically review every new or updated PR.
+# Requires Gitea >= 1.19 with Actions enabled and a registered act_runner.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+jobs:
+  pr-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Clone Claude Code Action
+        run: |
+          git clone --depth 1 https://github.com/anthropics/claude-code-action.git "${{ runner.temp }}/claude-code-action"
+          cd "${{ runner.temp }}/claude-code-action"
+          bun install --production
+
+      - name: Claude PR Review
+        run: bun run "${{ runner.temp }}/claude-code-action/src/entrypoints/run-gitea.ts"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_API_URL: ${{ vars.GITEA_API_URL }}
+          GITEA_SERVER_URL: ${{ vars.GITEA_SERVER_URL }}
+
+          # Custom review prompt — references a repo-local review rules file
+          PROMPT: |
+            你现在是团队的资深审查员。请严格参照本仓库根目录下的
+            `.gitea/AI-REVIEW-RULES.md` 文件。
+            请阅读该规范，然后审查当前 Pull Request 的所有变更，
+            最后在评论区给出专业的审阅报告。
+
+          # No trigger phrase needed — runs automatically on every PR event
+          TRIGGER_PHRASE: ""
+
+          # Enable progress tracking so Claude posts a tracking comment
+          TRACK_PROGRESS: "true"
