@@ -157,17 +157,66 @@ async function updateFinalComment(opts: {
   const { owner, repo } = opts.context.repository;
   const jobRunLink = createGiteaJobRunLink(owner, repo, opts.context.runId);
 
-  let body: string;
-
+  // Build the footer lines to append
+  let footer: string;
   if (!opts.prepareSuccess) {
-    body = `❌ Claude Code failed during preparation.\n\n${opts.prepareError || "Unknown error"}\n\n${jobRunLink}`;
+    footer = `\n\n---\n❌ Claude Code failed during preparation.\n\n${opts.prepareError || "Unknown error"}\n\n${jobRunLink}`;
   } else if (opts.claudeSuccess) {
     const branchLink = opts.claudeBranch
       ? createGiteaBranchLink(owner, repo, opts.claudeBranch)
       : "";
-    body = `✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`;
+    footer = `\n\n---\n✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`;
   } else {
-    body = `⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
+    footer = `\n\n---\n⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
+  }
+
+  // Try to read what Claude already wrote via MCP and append the footer,
+  // rather than replacing the whole comment with just the footer.
+  let body: string;
+  try {
+    type CommentBody = { body: string };
+    const current = await opts.client.get<CommentBody>(
+      `/repos/${owner}/${repo}/issues/comments/${opts.commentId}`,
+    );
+    const existingBody = current?.body ?? "";
+
+    // If the existing body is just the initial placeholder (hasn't been
+    // updated by Claude's MCP calls yet, or was a failure), use a minimal
+    // combined message. Otherwise, append the footer to Claude's response.
+    if (
+      existingBody.includes("Claude Code is working") ||
+      existingBody.trim() === ""
+    ) {
+      // Claude didn't write anything meaningful – show a compact message
+      if (opts.claudeSuccess) {
+        const branchLink = opts.claudeBranch
+          ? createGiteaBranchLink(owner, repo, opts.claudeBranch)
+          : "";
+        body = `✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`;
+      } else if (!opts.prepareSuccess) {
+        body = `❌ Claude Code failed during preparation.\n\n${opts.prepareError || "Unknown error"}\n\n${jobRunLink}`;
+      } else {
+        body = `⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
+      }
+    } else {
+      // Claude wrote a meaningful response – append the footer
+      body = existingBody + footer;
+    }
+  } catch (err) {
+    // If we can't read the current comment, fall back to the original behaviour
+    console.warn(
+      `Could not read existing comment body (id=${opts.commentId}): ${err}`,
+    );
+    if (!opts.prepareSuccess) {
+      body = `❌ Claude Code failed during preparation.\n\n${opts.prepareError || "Unknown error"}\n\n${jobRunLink}`;
+    } else if (opts.claudeSuccess) {
+      const branchLink = opts.claudeBranch
+        ? createGiteaBranchLink(owner, repo, opts.claudeBranch)
+        : "";
+      body = `✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`;
+    } else {
+      body = `⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
+    }
   }
 
   await updateGiteaComment(opts.client, {
