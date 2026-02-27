@@ -24,25 +24,85 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install Bun
+      # 一个 step 完成所有操作：安装 bun → clone 仓库 → 安装依赖 → 运行
+      - name: Run Claude Code Action (Gitea)
         run: |
-          curl -fsSL https://bun.sh/install | bash
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          set -e
 
-      - name: Clone Claude Code Action
-        run: |
-          git clone --depth 1 https://github.com/anthropics/claude-code-action.git "${{ runner.temp }}/claude-code-action"
-          cd "${{ runner.temp }}/claude-code-action"
+          # 1. Install Bun
+          echo "=== Installing Bun ==="
+          curl -fsSL https://bun.sh/install | bash
+          export BUN_PATH="$HOME/.bun/bin"
+          export PATH="$BUN_PATH:$PATH"
+          echo "Bun version: $(bun --version)"
+
+          # 2. Clone claude-code-action
+          echo "=== Cloning claude-code-action ==="
+          CCA_DIR="$HOME/cca"
+          git clone --depth 1 https://github.com/hooxing/claude-code-action "$CCA_DIR"
+          echo "Cloned to: $CCA_DIR"
+
+          # 关键：设置 GITHUB_ACTION_PATH 为实际 clone 路径
+          export GITHUB_ACTION_PATH="$CCA_DIR"
+          echo "GITHUB_ACTION_PATH=$GITHUB_ACTION_PATH"
+
+          # 3. Install dependencies
+          echo "=== Installing dependencies ==="
+          cd "$CCA_DIR"
           bun install --production
 
-      - name: Run Claude Code
-        run: bun run "${{ runner.temp }}/claude-code-action/src/entrypoints/run-gitea.ts"
+          # 4. Run
+          echo "=== Running Claude Code Action ==="
+          cd "$GITHUB_WORKSPACE"
+          bun run "$CCA_DIR/src/entrypoints/run-gitea.ts"
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
-          GITEA_API_URL: ${{ vars.GITEA_API_URL }} # e.g. https://your-gitea.example.com/api/v1
-          GITEA_SERVER_URL: ${{ vars.GITEA_SERVER_URL }} # e.g. https://your-gitea.example.com
-          TRIGGER_PHRASE: "@claude"
+          # Gitea API 地址（根据你的环境修改）
+          GITEA_API_URL: http://gitea:3000/api/v1
+          GITEA_SERVER_URL: http://gitea:3000
 
-          # Optional: Trigger when specific user is assigned to an issue
-          # ASSIGNEE_TRIGGER: "claude-bot"
+          # 身份认证
+          GITEA_TOKEN: ${{ secrets.CLAUDE_PAT }}
+          OVERRIDE_GITHUB_TOKEN: ${{ secrets.CLAUDE_PAT }}
+
+          # 触发配置
+          TRIGGER_PHRASE: "@claude"
+          LABEL_TRIGGER: "claude"
+          ASSIGNEE_TRIGGER: ""
+          TRACK_PROGRESS: "true"
+
+          # 机器人身份
+          BOT_NAME: "claude-bot"
+          BOT_ID: "0"
+
+          # 分支设置
+          BRANCH_PREFIX: "claude/"
+          BRANCH_NAME_TEMPLATE: ""
+          BASE_BRANCH: ""
+
+          # 评论/过滤设置
+          USE_STICKY_COMMENT: "false"
+          INCLUDE_FIX_LINKS: "true"
+          ALLOWED_BOTS: ""
+          ALLOWED_NON_WRITE_USERS: ""
+          INCLUDE_COMMENTS_BY_ACTOR: ""
+          EXCLUDE_COMMENTS_BY_ACTOR: ""
+
+          # Claude CLI 参数
+          CLAUDE_ARGS: ""
+          PROMPT: ""
+
+          # Base-action 必需输入
+          INPUT_PROMPT_FILE: /tmp/claude-prompts/claude-prompt.txt
+          INPUT_SETTINGS: ""
+          INPUT_SHOW_FULL_OUTPUT: "false"
+          DISPLAY_REPORT: "true"
+          INPUT_PLUGINS: ""
+          INPUT_PLUGIN_MARKETPLACES: ""
+          PATH_TO_CLAUDE_CODE_EXECUTABLE: ""
+          INPUT_PATH_TO_CLAUDE_CODE_EXECUTABLE: ""
+          INPUT_PATH_TO_BUN_EXECUTABLE: ""
+
+          # Anthropic API
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+
