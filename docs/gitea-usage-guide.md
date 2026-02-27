@@ -1,74 +1,167 @@
 # Claude Code Action for Gitea — Usage Guide
 
-This guide explains how to use the **Claude Code Action** on a self-hosted [Gitea](https://gitea.com) instance. The action allows Claude to respond to `@claude` mentions on issues and pull requests (tag mode) or to run tasks via a `prompt` input (agent mode), just like the GitHub version — but entirely on Gitea.
+This guide explains how to use **Claude Code Action** on a self-hosted [Gitea](https://gitea.com) instance. The Action lets Claude respond to `@claude` mentions in Issues and Pull Requests (Tag mode) or run tasks via a `prompt` input (Agent mode) — with the same capabilities as the GitHub version, but running entirely on Gitea.
 
 ---
 
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
-2. [Quick Start](#quick-start)
-3. [Architecture Overview](#architecture-overview)
-4. [Authentication](#authentication)
-5. [Workflow Configuration](#workflow-configuration)
+2. [Quick Start (Full Deployment)](#quick-start-full-deployment)
+3. [act_runner Docker Configuration](#act_runner-docker-configuration)
+4. [Workflow File (Inline Mode)](#workflow-file-inline-mode)
+5. [Architecture Overview](#architecture-overview)
+6. [Authentication](#authentication)
+7. [Workflow Configuration Examples](#workflow-configuration-examples)
    - [Tag Mode (Interactive)](#tag-mode-interactive)
-   - [Agent Mode (Automation)](#agent-mode-automation)
-6. [Available Inputs](#available-inputs)
-7. [Available Outputs](#available-outputs)
-8. [Differences from the GitHub Version](#differences-from-the-github-version)
-9. [Advanced Configuration](#advanced-configuration)
-10. [Troubleshooting](#troubleshooting)
+   - [Agent Mode (Automated)](#agent-mode-automated)
+8. [Available Inputs](#available-inputs)
+9. [Available Outputs](#available-outputs)
+10. [Differences from GitHub Version](#differences-from-github-version)
+11. [Advanced Configuration](#advanced-configuration)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Prerequisites
 
-| Requirement                           | Details                                                                                       |
-| ------------------------------------- | --------------------------------------------------------------------------------------------- |
-| **Gitea version**                     | ≥ 1.19 (Gitea Actions support is required)                                                    |
-| **Gitea Actions runner**              | A registered `act_runner` configured for your Gitea instance                                  |
-| **Anthropic API key**                 | An API key from [console.anthropic.com](https://console.anthropic.com)                        |
-| **Gitea personal access token (PAT)** | A token with `repo` scope (or use the built-in `GITHUB_TOKEN` that Gitea Actions provides)    |
-| **Internet access**                   | The runner must be able to reach `https://claude.ai` (to install the CLI) and Anthropic's API |
+| Requirement                     | Details                                                               |
+| ------------------------------- | --------------------------------------------------------------------- |
+| **Gitea version**               | ≥ 1.19 (Gitea Actions support required)                               |
+| **Gitea Actions Runner**        | A registered and configured `act_runner` using Docker mode             |
+| **Anthropic API Key**           | Obtained from [console.anthropic.com](https://console.anthropic.com)   |
+| **Gitea Personal Access Token** | A token with `repo` scope                                              |
+| **Network access**              | The runner needs access to the Anthropic API and npm/bun registries    |
+| **Docker**                      | Docker must be installed on the runner host                            |
 
-### Setting up Gitea Actions
+### Enable Gitea Actions
 
-If you haven't already enabled Gitea Actions:
+If Gitea Actions is not yet enabled:
 
-1. In `app.ini`, ensure:
+1. In `app.ini`:
    ```ini
    [actions]
    ENABLED = true
    ```
-2. Register a runner:
-   ```bash
-   # On the runner machine
-   act_runner register --instance https://your-gitea.example.com --token <runner-token>
-   act_runner daemon
-   ```
-3. Your Gitea instance should now accept workflow files in `.gitea/workflows/`.
+2. Restart Gitea.
 
 ---
 
-## Quick Start
+## Quick Start (Full Deployment)
 
-### 1. Store Secrets
+> **This section covers the complete deployment from scratch**, including Gitea configuration, runner setup, secrets, and the workflow file.
 
-> **Note**: Gitea does not allow secret names starting with `GITEA_` or `GITHUB_`. Use a name like `CLAUDE_PAT` instead.
+### Step 1: Configure Secrets
 
-You can add secrets at either the **user level** or the **repository level**:
+> **Note**: Gitea does not allow secret names starting with `GITEA_` or `GITHUB_`. Use the names below.
 
-- **User-level secrets**: Click your **avatar** (top right) → **Settings** → **Actions** → **Secrets**. These secrets are available to all your repositories.
-- **Repository-level secrets**: Go to your repository → **Settings** → **Actions** → **Secrets**. These secrets are only available to this repository.
+Add secrets at the **user level** (Avatar → Settings → Actions → Secrets) or **repository level** (Repo → Settings → Actions → Secrets):
 
-Add the following secrets:
+| Secret Name           | Value                                                         |
+| --------------------- | ------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`   | Your Anthropic API key                                        |
+| `CLAUDE_PAT`          | A Gitea PAT with `repo` scope                                |
+| `ANTHROPIC_BASE_URL`  | (Optional) Custom Anthropic API proxy URL                     |
 
-| Secret Name         | Value                                                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY` | Your Anthropic API key                                                                                      |
-| `CLAUDE_PAT`        | A Gitea personal access token with `repo` scope (optional if the built-in token has sufficient permissions) |
+### Step 2: Register and Configure act_runner
 
-### 2. Create a Workflow File
+> **This is the most error-prone step.** Follow this section carefully. See [act_runner Docker Configuration](#act_runner-docker-configuration) for details.
+
+#### Docker Compose Deployment (Recommended)
+
+```yaml
+version: "3.8"
+services:
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    volumes:
+      - ./gitea/data:/data
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+    restart: unless-stopped
+    networks:
+      - gitea-network
+
+  act_runner:
+    image: gitea/act_runner:latest
+    container_name: act_runner
+    depends_on:
+      - gitea
+    volumes:
+      - ./runner/data:/data
+      - ./runner/config/config.yaml:/config.yaml
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      GITEA_INSTANCE_URL: http://gitea:3000
+      GITEA_RUNNER_REGISTRATION_TOKEN: <your-runner-token>
+      # ⚠️ CRITICAL: labels MUST include the full Docker image address
+      GITEA_RUNNER_LABELS: "ubuntu-latest:docker://node:20-bullseye"
+      CONFIG_FILE: /config.yaml
+    restart: unless-stopped
+    networks:
+      - gitea-network
+
+networks:
+  gitea-network:
+    driver: bridge
+```
+
+> **⚠️ Important**: The `GITEA_RUNNER_LABELS` format must be `<label>:docker://<image>`, e.g. `ubuntu-latest:docker://node:20-bullseye`.
+> Writing just `ubuntu-latest:docker` (without the image) will cause the runner to fail with `Skipping unsupported platform`.
+
+#### act_runner config.yaml
+
+Create `./runner/config/config.yaml`:
+
+```yaml
+log:
+  level: info
+
+runner:
+  capacity: 1
+  timeout: 3600s
+  labels:
+    - "ubuntu-latest:docker://node:20-bullseye"
+
+container:
+  # ⚠️ CRITICAL: must match the docker-compose network name
+  network: "gitea-network"
+  docker_host: ""
+  privileged: false
+```
+
+#### Get the Runner Registration Token
+
+1. Log in to Gitea → **Site Administration** → **Actions** → **Runners**.
+2. Click **Create Runner** to get the registration token.
+3. Replace `<your-runner-token>` in `docker-compose.yml`.
+
+#### Start Services
+
+```bash
+docker compose up -d
+```
+
+Verify the runner is registered and **Idle** in Gitea → Site Administration → Actions → Runners.
+
+> **⚠️ .runner cache file**: After initial registration, the runner creates a `.runner` cache file in `./runner/data/`. If you change `GITEA_RUNNER_LABELS`, you must also update the `labels` field in `.runner`, or delete it to force re-registration.
+
+### Step 3: Fork the claude-code-action Repository
+
+> **⚠️ Important**: The official `anthropics/claude-code-action` repository does **not** contain the Gitea entry file `run-gitea.ts`. You must use a fork that includes it.
+
+1. Fork [hooxing/claude-code-action](https://github.com/hooxing/claude-code-action) (or use it directly).
+2. Verify the fork contains `src/entrypoints/run-gitea.ts`.
+3. Update the clone URL in your workflow to point to your fork.
+
+### Step 4: Create the Workflow File
+
+> **⚠️ Important**: `act_runner` does **not** support `uses: repo/action-gitea.yml@main` to reference root-level YAML files (it will fail with `action.yml not found`). You must use **inline mode**: manually clone, install, and run in a single `run:` block.
 
 Create `.gitea/workflows/claude.yml`:
 
@@ -80,32 +173,173 @@ on:
   issues:
     types: [opened, labeled, assigned]
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, ready_for_review]
+  pull_request_review_comment:
+    types: [created]
 
 jobs:
   claude:
-    runs-on: ubuntu-latest # or your custom runner label
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Run Claude Code Action
-        uses: anthropics/claude-code-action/action-gitea.yml@main
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.CLAUDE_PAT }}
-          trigger_phrase: "@claude"
+          fetch-depth: 1
+
+      - name: Run Claude Code Action (Gitea)
+        run: |
+          set -e
+
+          # 1. Install Bun (TypeScript runtime)
+          echo "=== Installing Bun ==="
+          curl -fsSL https://bun.sh/install | bash
+          export BUN_PATH="$HOME/.bun/bin"
+          export PATH="$BUN_PATH:$PATH"
+          echo "Bun version: $(bun --version)"
+
+          # 2. Clone claude-code-action (fork that includes run-gitea.ts)
+          echo "=== Cloning claude-code-action ==="
+          CCA_DIR="$HOME/cca"
+          git clone --depth 1 https://github.com/hooxing/claude-code-action "$CCA_DIR"
+          echo "Cloned to: $CCA_DIR"
+          ls "$CCA_DIR/src/entrypoints/"
+
+          # ⚠️ CRITICAL: Set GITHUB_ACTION_PATH to the actual clone path.
+          # The MCP comment server uses this path to locate itself.
+          export GITHUB_ACTION_PATH="$CCA_DIR"
+          echo "GITHUB_ACTION_PATH=$GITHUB_ACTION_PATH"
+
+          # 3. Install dependencies
+          echo "=== Installing dependencies ==="
+          cd "$CCA_DIR"
+          bun install --production
+
+          # 4. Run the Gitea entry script
+          echo "=== Running Claude Code Action ==="
+          bun run "$CCA_DIR/src/entrypoints/run-gitea.ts"
+        env:
+          # Gitea API (use container name if on the same Docker network)
+          GITEA_API_URL: http://gitea:3000/api/v1
+          GITEA_SERVER_URL: http://gitea:3000
+
+          # Authentication
+          GITEA_TOKEN: ${{ secrets.CLAUDE_PAT }}
+          OVERRIDE_GITHUB_TOKEN: ${{ secrets.CLAUDE_PAT }}
+
+          # Trigger configuration
+          TRIGGER_PHRASE: "@claude"
+          LABEL_TRIGGER: "claude"
+          ASSIGNEE_TRIGGER: ""
+          TRACK_PROGRESS: "true"
+
+          # Bot identity
+          BOT_NAME: "claude-bot"
+          BOT_ID: "0"
+
+          # Branch settings
+          BRANCH_PREFIX: "claude/"
+          BRANCH_NAME_TEMPLATE: ""
+          BASE_BRANCH: ""
+
+          # Comment/filter settings
+          USE_STICKY_COMMENT: "false"
+          INCLUDE_FIX_LINKS: "true"
+          ALLOWED_BOTS: ""
+          ALLOWED_NON_WRITE_USERS: ""
+          INCLUDE_COMMENTS_BY_ACTOR: ""
+          EXCLUDE_COMMENTS_BY_ACTOR: ""
+
+          # Claude CLI args
+          CLAUDE_ARGS: ""
+          PROMPT: ""
+
+          # Base-action required inputs
+          INPUT_PROMPT_FILE: /tmp/claude-prompts/claude-prompt.txt
+          INPUT_SETTINGS: ""
+          INPUT_SHOW_FULL_OUTPUT: "false"
+          DISPLAY_REPORT: "true"
+          INPUT_PLUGINS: ""
+          INPUT_PLUGIN_MARKETPLACES: ""
+          PATH_TO_CLAUDE_CODE_EXECUTABLE: ""
+          INPUT_PATH_TO_CLAUDE_CODE_EXECUTABLE: ""
+          INPUT_PATH_TO_BUN_EXECUTABLE: ""
+
+          # Anthropic API
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
 ```
 
-### 3. Try It Out
+### Step 5: Commit and Test
 
-Open an issue or PR in your repository and type:
+1. Commit `.gitea/workflows/claude.yml` to the default branch.
+2. Ensure Actions is enabled under repo **Settings → Actions**.
+3. Create an Issue and comment:
+   ```
+   @claude Hello, what can you do?
+   ```
+4. Claude should create a tracking comment and reply within seconds.
+
+---
+
+## act_runner Docker Configuration
+
+### Key Configuration Points
+
+| Setting | Correct | Wrong | Notes |
+|---|---|---|---|
+| Runner Labels | `ubuntu-latest:docker://node:20-bullseye` | `ubuntu-latest:docker` | Must include the full Docker image |
+| Container Network | `gitea-network` (matches compose) | empty | Runner containers need access to Gitea |
+| Docker Socket | Mount `/var/run/docker.sock` | Not mounted | Runner needs Docker API access |
+| config.yaml | Specified via `CONFIG_FILE` | Not used | Ensures labels and network are correct |
+
+### .runner Cache File
+
+When you change labels but don't update `.runner`, the runner uses stale config. Fix:
+
+```bash
+# Delete .runner to force re-registration
+rm ./runner/data/.runner
+docker restart act_runner
+```
+
+---
+
+## Workflow File (Inline Mode)
+
+### Why can't you use `uses:` to reference action-gitea.yml?
+
+In standard GitHub Actions:
+
+```yaml
+uses: anthropics/claude-code-action/action-gitea.yml@main
+```
+
+In `act_runner`, this fails with:
 
 ```
-@claude Can you help me understand this codebase?
+action.yml not found in action-gitea.yml/
 ```
 
-Claude will create a tracking comment and respond.
+`act_runner` treats the path as a directory and looks for `action.yml` inside it. It does not support referencing root-level YAML files.
+
+### Core Principles of Inline Mode
+
+1. **Manually clone the repo** in `run:`, not via `uses:`.
+2. **All operations must be in a single `run:` block** (clone, install, run), because `/tmp` is isolated between steps in act_runner.
+3. **`GITHUB_ACTION_PATH` must be set dynamically** via `export` in the run script, not in `env:`. The MCP server depends on this path to locate its scripts.
+
+### Environment Variable Categories
+
+| Category | Variables | Notes |
+|---|---|---|
+| **Gitea API** | `GITEA_API_URL`, `GITEA_SERVER_URL` | Container name for same Docker network; hostname for external |
+| **Auth** | `GITEA_TOKEN`, `OVERRIDE_GITHUB_TOKEN` | Both set to `${{ secrets.CLAUDE_PAT }}` |
+| **Trigger** | `TRIGGER_PHRASE`, `LABEL_TRIGGER`, `ASSIGNEE_TRIGGER` | How to trigger Claude |
+| **Bot** | `BOT_NAME`, `BOT_ID` | Claude bot identity |
+| **Branch** | `BRANCH_PREFIX`, `BRANCH_NAME_TEMPLATE`, `BASE_BRANCH` | Branch naming rules |
+| **Anthropic** | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` | API auth and proxy |
 
 ---
 
@@ -113,28 +347,29 @@ Claude will create a tracking comment and respond.
 
 ```
 ┌────────────────────────────────────────┐
-│         Gitea Instance                 │
+│         Gitea Instance                  │
 │  ┌──────────────────────────────────┐  │
-│  │   Issue / PR with @claude        │  │
+│  │  Issue / PR with @claude mention │  │
 │  └──────────┬───────────────────────┘  │
 │             │ webhook                  │
 │  ┌──────────▼───────────────────────┐  │
 │  │   Gitea Actions Runner           │  │
 │  │   ┌────────────────────────────┐ │  │
 │  │   │  Claude Code Action        │ │  │
-│  │   │  (action-gitea.yml)        │ │  │
+│  │   │  (run-gitea.ts)            │ │  │
 │  │   │                            │ │  │
 │  │   │  1. Parse context          │ │  │
 │  │   │  2. Fetch PR/Issue data    │ │  │
 │  │   │     (Gitea REST API)       │ │  │
 │  │   │  3. Create tracking comment│ │  │
 │  │   │  4. Run Claude Code CLI    │ │  │
-│  │   │  5. Push changes / reply   │ │  │
+│  │   │  5. Update comment via MCP │ │  │
+│  │   │  6. Push changes / reply   │ │  │
 │  │   └────────────────────────────┘ │  │
 │  └──────────────────────────────────┘  │
 └────────────────────────────────────────┘
                     │
-                    │ API call
+                    │ API calls
                     ▼
            ┌───────────────┐
            │ Anthropic API  │
@@ -142,318 +377,115 @@ Claude will create a tracking comment and respond.
            └───────────────┘
 ```
 
-The action:
-
-1. **Parses** the Gitea Actions webhook payload (compatible with GitHub Actions format).
-2. **Authenticates** to Gitea's REST API using a PAT or the built-in workflow token.
-3. **Fetches** issue/PR data, comments, file changes via Gitea REST API (no GraphQL needed).
-4. **Builds** a prompt containing all context for Claude.
-5. **Runs** the Claude Code CLI, which reads the repo, makes changes, and pushes commits.
-6. **Updates** the tracking comment with the result.
-
 ---
 
 ## Authentication
 
 ### Gitea Token
 
-The action uses a Gitea Personal Access Token (PAT) for all API operations. There are three ways to provide it (in order of priority):
+The Action uses a Gitea PAT for all API operations. In inline mode, provide it via environment variables:
 
-1. **`gitea_token` input** (recommended): Set in your workflow file using a secret.
-2. **`GITEA_TOKEN` environment variable**: Set in the runner environment.
-3. **Built-in `GITHUB_TOKEN`**: Gitea Actions automatically injects a token compatible with the GitHub Actions format.
+1. **`GITEA_TOKEN` / `OVERRIDE_GITHUB_TOKEN`** (recommended for inline mode).
+2. **Built-in `GITHUB_TOKEN`**: Auto-injected by Gitea Actions.
 
 > **Note**: Unlike the GitHub version, there is no OIDC-based token exchange. Gitea uses direct token authentication.
 
 ### Creating a Gitea PAT
 
-1. Go to your Gitea profile → **Settings → Applications**.
-2. Under **Manage Access Tokens**, create a new token with:
-   - **Token Name**: `claude-code-action`
-   - **Scopes**: Select `repo` (full repository access)
-3. Copy the generated token and store it as a secret in your repository.
+1. Avatar → **Settings** → **Applications**.
+2. Under **Manage Access Tokens**, create a new token with `repo` scope.
+3. Store the token as a secret.
 
 ### Anthropic API Key
 
-The Claude Code CLI requires authentication with Anthropic:
-
-- **`anthropic_api_key`**: Direct API key from Anthropic.
-- **`anthropic_base_url`**: Optional custom base URL for the Anthropic API (useful for proxies or alternative endpoints). Can also be set via the `ANTHROPIC_BASE_URL` environment variable.
-- **`claude_code_oauth_token`**: OAuth token (alternative).
-- **Bedrock/Vertex**: Cloud provider authentication (set `use_bedrock` or `use_vertex` to `true`).
+- **`ANTHROPIC_API_KEY`**: Direct Anthropic API key.
+- **`ANTHROPIC_BASE_URL`**: Optional custom API proxy URL.
+- **Bedrock/Vertex**: Cloud provider auth (set `use_bedrock` or `use_vertex`).
 
 ---
 
-## Workflow Configuration
+## Workflow Configuration Examples
 
 ### Tag Mode (Interactive)
 
-Tag mode responds to user interactions — `@claude` mentions in comments, issue assignments, or label triggers.
-
-#### Example: Respond to @claude Mentions
+Modify the `env:` block in the workflow template to change trigger behaviour:
 
 ```yaml
-name: Claude Tag Mode
-on:
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
-  pull_request_review:
-    types: [submitted]
-  issues:
-    types: [opened, labeled, assigned]
+# Trigger via @claude mention (default)
+TRIGGER_PHRASE: "@claude"
 
-jobs:
-  claude:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action/action-gitea.yml@main
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.CLAUDE_PAT }}
-          trigger_phrase: "@claude"
-          track_progress: "true"
+# Trigger via label
+LABEL_TRIGGER: "claude-task"
+
+# Trigger via assignee
+ASSIGNEE_TRIGGER: "@claude-bot"
 ```
 
-#### Example: Trigger by Label
+### Agent Mode (Automated)
+
+Set the `PROMPT` environment variable to enter agent mode:
 
 ```yaml
-name: Claude on Label
-on:
-  issues:
-    types: [labeled]
-
-jobs:
-  claude:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action/action-gitea.yml@main
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.CLAUDE_PAT }}
-          label_trigger: "claude-task"
-          track_progress: "true"
-```
-
-#### Example: Trigger by Assignee
-
-```yaml
-name: Claude on Assign
-on:
-  issues:
-    types: [assigned]
-
-jobs:
-  claude:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action/action-gitea.yml@main
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.CLAUDE_PAT }}
-          assignee_trigger: "@claude-bot"
-          track_progress: "true"
-```
-
-### Agent Mode (Automation)
-
-Agent mode runs whenever an explicit `prompt` input is provided. It bypasses mention checking and runs directly.
-
-#### Example: Auto-review PRs
-
-```yaml
-name: Claude PR Review
-on:
-  pull_request:
-    types: [opened, synchronize]
-
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action/action-gitea.yml@main
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.CLAUDE_PAT }}
-          prompt: |
-            Review this pull request for:
-            - Code quality issues
-            - Potential bugs
-            - Security vulnerabilities
-            Provide a summary comment with your findings.
-```
-
-#### Example: Auto-fix on Schedule
-
-```yaml
-name: Claude Daily Fix
-on:
-  schedule:
-    - cron: "0 9 * * 1" # Every Monday at 9 AM
-
-jobs:
-  fix:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action/action-gitea.yml@main
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.CLAUDE_PAT }}
-          prompt: |
-            Look through the codebase for any TODO comments
-            and try to resolve them. Create a branch with your fixes.
+PROMPT: |
+  Review this Pull Request for:
+  - Code quality issues
+  - Potential bugs
+  - Security vulnerabilities
+  Provide a summary in the comment.
 ```
 
 ---
 
 ## Available Inputs
 
-| Input                            | Default          | Description                                      |
-| -------------------------------- | ---------------- | ------------------------------------------------ |
-| `trigger_phrase`                 | `@claude`        | Phrase to look for in comments/body              |
-| `assignee_trigger`               | —                | Assignee username that triggers the action       |
-| `label_trigger`                  | `claude`         | Label that triggers the action                   |
-| `base_branch`                    | (default branch) | Branch to use as base when creating new branches |
-| `branch_prefix`                  | `claude/`        | Prefix for Claude-created branches               |
-| `branch_name_template`           | —                | Template for branch names (see below)            |
-| `allowed_bots`                   | —                | Comma-separated bot usernames, or `*` for all    |
-| `allowed_non_write_users`        | —                | Users allowed without write permissions          |
-| `include_comments_by_actor`      | —                | Filter to include specific commenters            |
-| `exclude_comments_by_actor`      | —                | Filter to exclude specific commenters            |
-| `prompt`                         | —                | Direct prompt for Claude (enables agent mode)    |
-| `settings`                       | —                | Claude Code settings JSON or file path           |
-| `anthropic_api_key`              | —                | Anthropic API key                                |
-| `anthropic_base_url`             | —                | Custom Anthropic API base URL (e.g. for proxies) |
-| `claude_code_oauth_token`        | —                | OAuth token alternative                          |
-| `gitea_token`                    | —                | Gitea PAT with repo permissions                  |
-| `use_bedrock`                    | `false`          | Use Amazon Bedrock                               |
-| `use_vertex`                     | `false`          | Use Google Vertex AI                             |
-| `claude_args`                    | —                | Additional CLI arguments for Claude              |
-| `use_sticky_comment`             | `false`          | Reuse a single tracking comment                  |
-| `ssh_signing_key`                | —                | SSH private key for commit signing               |
-| `bot_id`                         | `0`              | User ID for git operations                       |
-| `bot_name`                       | `claude-bot`     | Username for git operations                      |
-| `track_progress`                 | `false`          | Force tag mode with tracking comments            |
-| `include_fix_links`              | `true`           | Include fix links in review feedback             |
-| `path_to_claude_code_executable` | —                | Custom Claude Code executable path               |
-| `display_report`                 | `true`           | Show report in step summary                      |
-| `show_full_output`               | `false`          | Show full Claude output (may contain secrets)    |
-| `plugins`                        | —                | Plugin names to install                          |
-| `plugin_marketplaces`            | —                | Plugin marketplace URLs                          |
-| `gitea_api_url`                  | —                | Custom Gitea API base URL                        |
-| `gitea_server_url`               | —                | Custom Gitea server URL                          |
+> In inline mode, these are passed as `env:` variables (UPPER_SNAKE_CASE).
 
-### Branch Name Template Variables
-
-| Variable           | Description                             |
-| ------------------ | --------------------------------------- |
-| `{{prefix}}`       | The `branch_prefix` value               |
-| `{{entityType}}`   | `issue` or `pr`                         |
-| `{{entityNumber}}` | Issue/PR number                         |
-| `{{timestamp}}`    | Current Unix timestamp                  |
-| `{{sha}}`          | Short SHA of the source branch          |
-| `{{label}}`        | First label, or entity type as fallback |
-| `{{description}}`  | First 5 words of title in kebab-case    |
+| Parameter                        | Env Variable                             | Default      | Description                                  |
+| -------------------------------- | ---------------------------------------- | ------------ | -------------------------------------------- |
+| `trigger_phrase`                 | `TRIGGER_PHRASE`                         | `@claude`    | Trigger phrase in comments/body              |
+| `assignee_trigger`               | `ASSIGNEE_TRIGGER`                       | —            | Username that triggers when assigned         |
+| `label_trigger`                  | `LABEL_TRIGGER`                          | `claude`     | Label that triggers the action               |
+| `base_branch`                    | `BASE_BRANCH`                            | (default)    | Base branch for new branches                 |
+| `branch_prefix`                  | `BRANCH_PREFIX`                          | `claude/`    | Prefix for Claude-created branches           |
+| `prompt`                         | `PROMPT`                                 | —            | Direct prompt (enables agent mode)           |
+| `anthropic_api_key`              | `ANTHROPIC_API_KEY`                      | —            | Anthropic API key                            |
+| `anthropic_base_url`             | `ANTHROPIC_BASE_URL`                     | —            | Custom API base URL                          |
+| `gitea_token`                    | `GITEA_TOKEN` / `OVERRIDE_GITHUB_TOKEN`  | —            | Gitea PAT with repo scope                    |
+| `claude_args`                    | `CLAUDE_ARGS`                            | —            | Extra arguments for Claude CLI               |
+| `bot_id`                         | `BOT_ID`                                 | `0`          | User ID for git operations                   |
+| `bot_name`                       | `BOT_NAME`                               | `claude-bot` | Username for git operations                  |
+| `track_progress`                 | `TRACK_PROGRESS`                         | `false`      | Force tag mode with tracking comment         |
+| `display_report`                 | `DISPLAY_REPORT`                         | `true`       | Show report in step summary                  |
 
 ---
 
 ## Available Outputs
 
-| Output              | Description                                           |
-| ------------------- | ----------------------------------------------------- |
-| `execution_file`    | Path to Claude's execution output file                |
-| `branch_name`       | Branch created by Claude                              |
-| `gitea_token`       | The token used by the action                          |
-| `structured_output` | JSON structured output (when `--json-schema` is used) |
-| `session_id`        | Session ID for resuming conversations                 |
+| Output              | Description                             |
+| ------------------- | --------------------------------------- |
+| `execution_file`    | Path to Claude execution output         |
+| `branch_name`       | Branch created by Claude                |
+| `session_id`        | Session ID for conversation resumption  |
 
 ---
 
-## Differences from the GitHub Version
+## Differences from GitHub Version
 
-| Feature                    | GitHub Version                   | Gitea Version                                   |
-| -------------------------- | -------------------------------- | ----------------------------------------------- |
-| **Authentication**         | OIDC + GitHub App token exchange | Personal Access Token (PAT)                     |
-| **Data fetching**          | GraphQL API                      | REST API only                                   |
-| **API commit signing**     | Supported (`use_commit_signing`) | Not supported (use SSH signing or standard git) |
-| **CI status integration**  | GitHub Actions workflow status   | Not yet supported                               |
-| **File operations server** | API-based commit/push            | Standard git commands                           |
-| **Image downloading**      | Downloads from GitHub URLs       | Not yet supported                               |
-| **Token revocation**       | Automatic (GitHub App)           | Not needed (PAT)                                |
-| **Action format**          | `action.yml` (composite)         | `action-gitea.yml` (composite)                  |
-| **Inline review comments** | Supported via MCP server         | Not yet supported                               |
+| Feature            | GitHub Version                | Gitea Version                            |
+| ------------------ | ----------------------------- | ---------------------------------------- |
+| **Authentication** | OIDC + GitHub App tokens      | Personal Access Token (PAT)               |
+| **Data fetching**  | GraphQL API                   | REST API only                              |
+| **Action format**  | `uses: repo/action.yml@ref`   | Inline mode only (manual clone + run)      |
+| **Entry file**     | `run.ts`                      | `run-gitea.ts` (fork only)                 |
+| **Comment tool**   | `mcp__github_comment__`       | `mcp__gitea_comment__` (auto-patched)      |
+| **CI status**      | GitHub Actions workflow status| Not supported                              |
+| **Inline reviews** | Via MCP server                | Not supported                              |
 
 ---
 
 ## Advanced Configuration
 
-### Using with Amazon Bedrock
-
-```yaml
-- uses: anthropics/claude-code-action/action-gitea.yml@main
-  with:
-    gitea_token: ${{ secrets.CLAUDE_PAT }}
-    use_bedrock: "true"
-  env:
-    AWS_REGION: us-east-1
-    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-```
-
-### Using with Google Vertex AI
-
-```yaml
-- uses: anthropics/claude-code-action/action-gitea.yml@main
-  with:
-    gitea_token: ${{ secrets.CLAUDE_PAT }}
-    use_vertex: "true"
-  env:
-    ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project
-    CLOUD_ML_REGION: us-central1
-    GOOGLE_APPLICATION_CREDENTIALS: /path/to/credentials.json
-```
-
-### SSH Commit Signing
-
-```yaml
-- uses: anthropics/claude-code-action/action-gitea.yml@main
-  with:
-    gitea_token: ${{ secrets.CLAUDE_PAT }}
-    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-    ssh_signing_key: ${{ secrets.SSH_SIGNING_KEY }}
-```
-
-### Custom Bot Identity
-
-```yaml
-- uses: anthropics/claude-code-action/action-gitea.yml@main
-  with:
-    gitea_token: ${{ secrets.CLAUDE_PAT }}
-    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-    bot_name: "my-claude-bot"
-    bot_id: "12345"
-```
-
-### Using a Custom Gitea Server URL
-
-You can provide the custom Gitea URL directly as action inputs (recommended):
-
-```yaml
-- uses: anthropics/claude-code-action/action-gitea.yml@main
-  with:
-    gitea_token: ${{ secrets.CLAUDE_PAT }}
-    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-    gitea_api_url: https://your-gitea.example.com/api/v1
-    gitea_server_url: https://your-gitea.example.com
-```
-
-Alternatively, set environment variables in your workflow:
+### Custom Gitea Server URL
 
 ```yaml
 env:
@@ -461,156 +493,113 @@ env:
   GITEA_SERVER_URL: https://your-gitea.example.com
 ```
 
-Or set them in the runner environment before the action runs.
-
-### Using a Custom Anthropic Base URL
-
-You can set a custom Anthropic API base URL directly as an action input (recommended). This is useful when using an API proxy, a self-hosted compatible endpoint, or a third-party service that provides access to Anthropic models:
+### Custom Anthropic API Base URL
 
 ```yaml
-- uses: anthropics/claude-code-action/action-gitea.yml@main
-  with:
-    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-    anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL }}
-    gitea_token: ${{ secrets.CLAUDE_PAT }}
+env:
+  ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
 ```
 
-Alternatively, you can set it as an environment variable in your workflow:
+### Amazon Bedrock
 
 ```yaml
-- uses: anthropics/claude-code-action/action-gitea.yml@main
-  with:
-    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-    gitea_token: ${{ secrets.CLAUDE_PAT }}
-  env:
-    ANTHROPIC_BASE_URL: https://your-proxy.example.com
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 ```
 
-> **Security tip**: Store the base URL as a secret (e.g., `secrets.ANTHROPIC_BASE_URL`) if it contains sensitive endpoint information.
+### Google Vertex AI
+
+```yaml
+env:
+  ANTHROPIC_VERTEX_PROJECT_ID: my-gcp-project
+  CLOUD_ML_REGION: us-central1
+  GOOGLE_APPLICATION_CREDENTIALS: /path/to/credentials.json
+```
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
+### Error Quick Reference
 
-#### "No authentication token found"
+| Error | Cause | Fix |
+|---|---|---|
+| `Skipping unsupported platform` | Runner labels missing image address | Use `ubuntu-latest:docker://node:20-bullseye`, update `.runner` cache |
+| `action.yml not found in action-gitea.yml/` | `act_runner` can't reference root YAML with `uses:` | Switch to inline mode |
+| `Module not found "run-gitea.ts"` | Cloned `anthropics/claude-code-action` (no Gitea entry) | Clone the fork with `run-gitea.ts` |
+| Comment shows only "✅ has finished" | `GITHUB_ACTION_PATH` mismatch, MCP server can't start | `export GITHUB_ACTION_PATH="$CCA_DIR"` in the run script |
+| `No authentication token found` | `GITEA_TOKEN` / `OVERRIDE_GITHUB_TOKEN` not set | Set both in `env:` |
+| `Actor does not have write permissions` | User lacks repo write access | Grant access or set `ALLOWED_NON_WRITE_USERS` |
 
-**Cause**: Neither `gitea_token`, `GITEA_TOKEN`, `OVERRIDE_GITHUB_TOKEN`, nor `GITHUB_TOKEN` is set.
+### Detailed Troubleshooting
 
-**Fix**: Add a `gitea_token` input pointing to a secret containing your Gitea PAT:
+#### 1. Actions Not Triggering
 
-```yaml
-with:
-  gitea_token: ${{ secrets.CLAUDE_PAT }}
-```
+- [ ] Is Actions enabled in repo Settings?
+- [ ] Is the workflow file on the default branch?
+- [ ] Is the runner online and idle?
+- [ ] Does `on:` include `issue_comment`?
 
-#### "Actor does not have write permissions"
+#### 2. Runner Receives Task but Fails Immediately
 
-**Cause**: The user who triggered the action doesn't have write access to the repository.
+Log shows: `Skipping unsupported platform -- Try running with -P ubuntu-latest=...`
 
-**Fix**: Either grant write access to the user or use `allowed_non_write_users`:
+Fix all three locations:
+1. `docker-compose.yml` → `GITEA_RUNNER_LABELS`
+2. `config.yaml` → `runner.labels`
+3. `./runner/data/.runner` → `labels` (or delete the file)
 
-```yaml
-with:
-  allowed_non_write_users: "username1,username2"
-```
+Then: `docker restart act_runner`
 
-#### "Failed to fetch PR/Issue data from Gitea"
+#### 3. Comment Shows Only Status Line
 
-**Cause**: The Gitea token doesn't have permission to read the repository, or the API URL is incorrect.
+**Cause**: MCP server can't start because `GITHUB_ACTION_PATH` points to a non-existent path.
 
-**Fix**:
+**Check**: The Actions log should show `GITHUB_ACTION_PATH=/root/cca` and `[Gitea] Patched prompt...`.
 
-1. Verify your PAT has `repo` scope.
-2. Check `GITEA_API_URL` points to the correct endpoint (e.g., `https://your-gitea.example.com/api/v1`).
+#### 4. API Address Issues
 
-#### "Install failed" (Claude Code CLI)
+| Deployment | `GITEA_API_URL` | `GITEA_SERVER_URL` |
+|---|---|---|
+| Same Docker network | `http://gitea:3000/api/v1` | `http://gitea:3000` |
+| Runner on host | `http://localhost:3000/api/v1` | `http://localhost:3000` |
+| Production (domain) | `https://gitea.company.com/api/v1` | `https://gitea.company.com` |
 
-**Cause**: The runner can't reach `https://claude.ai` to download the CLI.
+### Key Log Lines to Check
 
-**Fix**:
-
-1. Ensure the runner has internet access.
-2. Alternatively, pre-install Claude Code and use `path_to_claude_code_executable`.
-
-#### Branch creation fails
-
-**Cause**: The Gitea token may not have branch creation permissions.
-
-**Fix**: Ensure the PAT has full `repo` scope, and the repository allows the user to create branches.
-
-### Debugging
-
-Enable verbose output for debugging:
-
-```yaml
-with:
-  show_full_output: "true"
-```
-
-> ⚠️ **Warning**: This may expose sensitive information in logs. Only use for debugging.
+| Log Content | Meaning |
+|---|---|
+| `Bun version: x.x.x` | Bun installed successfully |
+| `Cloned to: /root/cca` | Repo cloned successfully |
+| `GITHUB_ACTION_PATH=/root/cca` | MCP server path is correct |
+| `run-gitea.ts` in `ls` output | Gitea entry file exists |
+| `[Gitea] Patched prompt...` | Prompt tool name fix applied |
+| `[Gitea] Comment updated with status footer appended.` | Final comment update succeeded |
 
 ---
 
-## Complete Example Workflow
+## Production Deployment Checklist
 
-Here's a full-featured example that handles multiple event types:
+When migrating from test to production:
 
-```yaml
-name: Claude Code Bot
-on:
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
-  pull_request_review:
-    types: [submitted]
-  issues:
-    types: [opened, labeled, assigned]
-  pull_request:
-    types: [opened, synchronize]
-
-jobs:
-  claude-tag:
-    # Only run for interactive events (comments, reviews)
-    if: >
-      github.event_name == 'issue_comment' ||
-      github.event_name == 'pull_request_review_comment' ||
-      github.event_name == 'pull_request_review' ||
-      (github.event_name == 'issues' && github.event.action == 'labeled') ||
-      (github.event_name == 'issues' && github.event.action == 'assigned')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action/action-gitea.yml@main
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.CLAUDE_PAT }}
-          trigger_phrase: "@claude"
-          label_trigger: "claude"
-          assignee_trigger: "@claude-bot"
-          track_progress: "true"
-          bot_name: "claude-bot"
-
-  claude-agent:
-    # Auto-review new PRs
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: anthropics/claude-code-action/action-gitea.yml@main
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          gitea_token: ${{ secrets.CLAUDE_PAT }}
-          prompt: "Review this PR for code quality, potential bugs, and security issues."
-```
+| Setting | Test | Production |
+|---|---|---|
+| `GITEA_API_URL` | `http://gitea:3000/api/v1` | `https://gitea.company.com/api/v1` |
+| `GITEA_SERVER_URL` | `http://gitea:3000` | `https://gitea.company.com` |
+| `CLAUDE_PAT` | Test account token | Service account token |
+| `ANTHROPIC_API_KEY` | Test key | Production key |
+| `ANTHROPIC_BASE_URL` | Test proxy | Production proxy |
+| Container Network | `gitea-network` | Per actual network config |
+| Clone URL | `hooxing/claude-code-action` | Internal fork URL |
 
 ---
 
-## Further Resources
+## More Resources
 
-- [Gitea Actions Documentation](https://docs.gitea.com/usage/actions/overview)
-- [Gitea API Documentation](https://docs.gitea.com/development/api-usage)
-- [Claude Code Documentation](https://docs.anthropic.com/en/docs/claude-code)
+- [Gitea Actions Docs](https://docs.gitea.com/usage/actions/overview)
+- [Gitea API Docs](https://docs.gitea.com/development/api-usage)
+- [Claude Code Docs](https://docs.anthropic.com/en/docs/claude-code)
 - [Original Claude Code Action (GitHub)](https://github.com/anthropics/claude-code-action)
+- [中文使用指南](./gitea-usage-guide-zh.md)
