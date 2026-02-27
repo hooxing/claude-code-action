@@ -156,76 +156,56 @@ async function updateFinalComment(opts: {
 
   const { owner, repo } = opts.context.repository;
   const jobRunLink = createGiteaJobRunLink(owner, repo, opts.context.runId);
+  const branchLink = opts.claudeBranch
+    ? createGiteaBranchLink(owner, repo, opts.claudeBranch)
+    : "";
 
-  // Build the footer lines to append
-  let footer: string;
+  // ── Failure path: Claude never ran or preparation failed ─────────────
+  // In these cases the comment still has the initial placeholder, so it's
+  // safe to replace it entirely with an error message.
   if (!opts.prepareSuccess) {
-    footer = `\n\n---\n❌ Claude Code failed during preparation.\n\n${opts.prepareError || "Unknown error"}\n\n${jobRunLink}`;
-  } else if (opts.claudeSuccess) {
-    const branchLink = opts.claudeBranch
-      ? createGiteaBranchLink(owner, repo, opts.claudeBranch)
-      : "";
-    footer = `\n\n---\n✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`;
-  } else {
-    footer = `\n\n---\n⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
+    const body = `❌ Claude Code failed during preparation.\n\n${opts.prepareError || "Unknown error"}\n\n${jobRunLink}`;
+    await updateGiteaComment(opts.client, { owner, repo, commentId: opts.commentId, body });
+    return;
   }
 
-  // Try to read what Claude already wrote via MCP and append the footer,
-  // rather than replacing the whole comment with just the footer.
-  let body: string;
+  // ── Success / partial-success path ───────────────────────────────────
+  // Claude has already updated the comment via the MCP tool.
+  // We MUST NOT replace that content.  Instead, read the current body and
+  // append a short status footer so the user gets the job/branch links.
+  const statusFooter = opts.claudeSuccess
+    ? `\n\n---\n✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`
+    : `\n\n---\n⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
+
   try {
     type CommentBody = { body: string };
+    console.log(`[Gitea] Reading comment id=${opts.commentId} from /repos/${owner}/${repo}/issues/comments/${opts.commentId}`);
     const current = await opts.client.get<CommentBody>(
       `/repos/${owner}/${repo}/issues/comments/${opts.commentId}`,
     );
     const existingBody = current?.body ?? "";
+    console.log(`[Gitea] Existing comment length=${existingBody.length}, preview="${existingBody.substring(0, 80).replace(/\n/g, "↵")}"`);
 
-    // If the existing body is just the initial placeholder (hasn't been
-    // updated by Claude's MCP calls yet, or was a failure), use a minimal
-    // combined message. Otherwise, append the footer to Claude's response.
-    if (
-      existingBody.includes("Claude Code is working") ||
-      existingBody.trim() === ""
-    ) {
-      // Claude didn't write anything meaningful – show a compact message
-      if (opts.claudeSuccess) {
-        const branchLink = opts.claudeBranch
-          ? createGiteaBranchLink(owner, repo, opts.claudeBranch)
-          : "";
-        body = `✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`;
-      } else if (!opts.prepareSuccess) {
-        body = `❌ Claude Code failed during preparation.\n\n${opts.prepareError || "Unknown error"}\n\n${jobRunLink}`;
-      } else {
-        body = `⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
-      }
-    } else {
-      // Claude wrote a meaningful response – append the footer
-      body = existingBody + footer;
-    }
+    // Append the footer regardless of what Claude wrote.
+    // If Claude truly didn't write anything (still placeholder), the footer
+    // at least gives the user the status links.
+    const finalBody = existingBody + statusFooter;
+    await updateGiteaComment(opts.client, { owner, repo, commentId: opts.commentId, body: finalBody });
+    console.log("[Gitea] Comment updated with status footer appended.");
   } catch (err) {
-    // If we can't read the current comment, fall back to the original behaviour
-    console.warn(
-      `Could not read existing comment body (id=${opts.commentId}): ${err}`,
-    );
-    if (!opts.prepareSuccess) {
-      body = `❌ Claude Code failed during preparation.\n\n${opts.prepareError || "Unknown error"}\n\n${jobRunLink}`;
-    } else if (opts.claudeSuccess) {
-      const branchLink = opts.claudeBranch
-        ? createGiteaBranchLink(owner, repo, opts.claudeBranch)
-        : "";
-      body = `✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`;
-    } else {
-      body = `⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
+    console.error(`[Gitea] Could not read/update comment (id=${opts.commentId}): ${err}`);
+    // Last resort: just try to set the comment to the status message.
+    try {
+      const fallbackBody = opts.claudeSuccess
+        ? `✅ Claude Code has finished working on this.\n\n${jobRunLink}${branchLink}`
+        : `⚠️ Claude Code finished with errors.\n\n${jobRunLink}`;
+      await updateGiteaComment(opts.client, { owner, repo, commentId: opts.commentId, body: fallbackBody });
+    } catch (err2) {
+      console.error(`[Gitea] Final fallback update also failed: ${err2}`);
     }
   }
-
-  await updateGiteaComment(opts.client, {
-    owner,
-    repo,
-    commentId: opts.commentId,
-    body,
-  });
 }
+
 
 // ─── Main ───────────────────────────────────────────────────────────
 
