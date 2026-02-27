@@ -58,7 +58,9 @@ export async function setupGiteaBranch(
 
       validateBranchName(branchName);
 
-      execGit(["fetch", "origin", `--depth=${fetchDepth}`, branchName]);
+      // Use the pull ref instead of branch name to support forks and ensure ref exists
+      const pullRef = `refs/pull/${entityNumber}/head`;
+      execGit(["fetch", "origin", `--depth=${fetchDepth}`, `${pullRef}:${branchName}`]);
       execGit(["checkout", branchName, "--"]);
 
       console.log(`Successfully checked out PR branch for PR #${entityNumber}`);
