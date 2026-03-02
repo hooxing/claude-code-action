@@ -91,25 +91,8 @@ export async function prepareGiteaTagMode({
     branchInfo.claudeBranch,
     giteaData,
     context,
+    "gitea",
   );
-
-  // The shared createPrompt uses mcp__github_comment__ throughout the prompt,
-  // but the Gitea MCP server is registered as "gitea_comment", so the tool
-  // name is mcp__gitea_comment__update_claude_comment.
-  // Patch the written prompt file so Claude uses the correct tool name.
-  const promptFile = `${process.env.RUNNER_TEMP || "/tmp"}/claude-prompts/claude-prompt.txt`;
-  try {
-    const { readFile, writeFile: writeFileFs } = await import("fs/promises");
-    const promptText = await readFile(promptFile, "utf-8");
-    const patchedText = promptText.replace(
-      /mcp__github_comment__/g,
-      "mcp__gitea_comment__",
-    );
-    await writeFileFs(promptFile, patchedText, "utf-8");
-    console.log("[Gitea] Patched prompt: replaced mcp__github_comment__ → mcp__gitea_comment__");
-  } catch (err) {
-    console.warn(`[Gitea] Warning: could not patch prompt tool name: ${err}`);
-  }
 
 
   const userClaudeArgs = process.env.CLAUDE_ARGS || "";

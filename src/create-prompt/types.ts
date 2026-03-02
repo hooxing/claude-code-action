@@ -110,4 +110,5 @@ export type EventData =
 export type PreparedContext = CommonFields & {
   eventData: EventData;
   githubContext?: GitHubContext;
+  platform: "github" | "gitea";
 };
