@@ -64,7 +64,8 @@ export function detectMode(context: GitHubContext): AutoDetectedMode {
   if (isEntityContext(context) && isPullRequestEvent(context)) {
     const supportedActions = [
       "opened",
-      "synchronize",
+      "synchronize",   // GitHub
+      "synchronized",  // Gitea
       "ready_for_review",
       "reopened",
     ];
@@ -92,7 +93,7 @@ function validateTrackProgressEvent(context: GitHubContext): void {
   if (!validEvents.includes(context.eventName)) {
     throw new Error(
       `track_progress is only supported for events: ${validEvents.join(", ")}. ` +
-        `Current event: ${context.eventName}`,
+      `Current event: ${context.eventName}`,
     );
   }
 
@@ -100,14 +101,15 @@ function validateTrackProgressEvent(context: GitHubContext): void {
   if (context.eventName === "pull_request" && context.eventAction) {
     const validActions = [
       "opened",
-      "synchronize",
+      "synchronize",   // GitHub
+      "synchronized",  // Gitea
       "ready_for_review",
       "reopened",
     ];
     if (!validActions.includes(context.eventAction)) {
       throw new Error(
         `track_progress for pull_request events is only supported for actions: ` +
-          `${validActions.join(", ")}. Current action: ${context.eventAction}`,
+        `${validActions.join(", ")}. Current action: ${context.eventAction}`,
       );
     }
   }
