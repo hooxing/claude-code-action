@@ -33,14 +33,16 @@ export async function configureGiteaGitAuth(
   const botName = user.login;
   const botId = user.id;
   const cwd = getWorkspaceCwd();
+  const email = `${botId}+${botName}@noreply.${serverUrl.hostname}`;
   console.log(`Setting git user as ${botName}...`);
-  await $({ cwd })`git config user.name "${botName}"`;
-  await $({ cwd })`git config user.email "${botId}+${botName}@noreply.${serverUrl.hostname}"`;
+  await $`git config user.name ${botName}`.cwd(cwd);
+  await $`git config user.email ${email}`.cwd(cwd);
   console.log(`✓ Set git user as ${botName}`);
 
   // Remove any existing auth headers
   try {
-    await $({ cwd })`git config --unset-all http.${GITEA_SERVER_URL}/.extraheader`;
+    const extraHeaderKey = `http.${GITEA_SERVER_URL}/.extraheader`;
+    await $`git config --unset-all ${extraHeaderKey}`.cwd(cwd);
     console.log("✓ Removed existing authentication headers");
   } catch {
     console.log("No existing authentication headers to remove");
@@ -49,7 +51,7 @@ export async function configureGiteaGitAuth(
   // Update remote URL with token auth, preserving the server's original protocol (http or https)
   const protocol = serverUrl.protocol; // e.g. "http:" or "https:"
   const remoteUrl = `${protocol}//x-access-token:${giteaToken}@${serverUrl.host}/${context.repository.owner}/${context.repository.repo}.git`;
-  await $({ cwd })`git remote set-url origin ${remoteUrl}`;
+  await $`git remote set-url origin ${remoteUrl}`.cwd(cwd);
   console.log("✓ Updated remote URL with Gitea authentication token");
 
   console.log("Gitea git authentication configured successfully");
