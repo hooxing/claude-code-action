@@ -69,6 +69,14 @@ export async function setupGiteaBranch(
       const baseBranch = prData.baseRefName;
       validateBranchName(baseBranch);
 
+      // Fetch the base branch so `git diff origin/<base>...HEAD` works for code review
+      try {
+        execGit(["fetch", "origin", baseBranch, "--depth=1"]);
+        console.log(`Fetched base branch '${baseBranch}' for diff comparison`);
+      } catch (e) {
+        console.warn(`Warning: could not fetch base branch '${baseBranch}': ${e}`);
+      }
+
       return {
         baseBranch,
         currentBranch: branchName,

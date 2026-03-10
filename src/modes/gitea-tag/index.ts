@@ -111,13 +111,17 @@ export async function prepareGiteaTagMode({
     "Write",
     "mcp__gitea_comment__update_claude_comment",
     ...userAllowedMCPTools,
-    // Git commands (Gitea doesn't support API-based commit signing)
-    "Bash(git add:*)",
-    "Bash(git commit:*)",
-    "Bash(git push:*)",
+    // Git read commands (for code review and inspection)
+    "Bash(git show:*)",
+    "Bash(git branch:*)",
+    "Bash(git fetch:*)",
     "Bash(git status:*)",
     "Bash(git diff:*)",
     "Bash(git log:*)",
+    // Git write commands
+    "Bash(git add:*)",
+    "Bash(git commit:*)",
+    "Bash(git push:*)",
     "Bash(git rm:*)",
   ];
 
