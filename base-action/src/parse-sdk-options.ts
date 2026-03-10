@@ -235,6 +235,11 @@ export function parseSdkOptions(options: ClaudeOptions): ParsedSdkOptions {
 
   // Build SDK options - use merged tools from both direct options and claudeArgs
   const sdkOptions: SdkOptions = {
+    // Ensure Claude runs in the workspace directory (the checked-out repository),
+    // not the action's own directory. This is critical for Gitea Actions where
+    // the composite step cwd may differ from GITHUB_WORKSPACE.
+    cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
+
     // Direct options from ClaudeOptions inputs
     model: options.model,
     maxTurns: options.maxTurns ? parseInt(options.maxTurns, 10) : undefined,
