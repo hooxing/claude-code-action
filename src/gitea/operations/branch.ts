@@ -21,7 +21,8 @@ function extractFirstLabel(
 }
 
 function execGit(args: string[]): void {
-  execFileSync("git", args, { stdio: "inherit" });
+  const cwd = process.env.GITHUB_WORKSPACE || process.cwd();
+  execFileSync("git", args, { stdio: "inherit", cwd });
 }
 
 export type BranchInfo = {
