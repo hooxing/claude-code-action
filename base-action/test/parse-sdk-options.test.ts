@@ -367,4 +367,36 @@ describe("parseSdkOptions", () => {
       );
     });
   });
+
+  describe("working directory (cwd)", () => {
+    test("should set cwd to GITHUB_WORKSPACE when available", () => {
+      const originalEnv = { ...process.env };
+      process.env.GITHUB_WORKSPACE = "/home/runner/work/my-repo/my-repo";
+
+      try {
+        const options: ClaudeOptions = {};
+        const result = parseSdkOptions(options);
+
+        expect(result.sdkOptions.cwd).toBe(
+          "/home/runner/work/my-repo/my-repo",
+        );
+      } finally {
+        process.env = originalEnv;
+      }
+    });
+
+    test("should fall back to process.cwd() when GITHUB_WORKSPACE is not set", () => {
+      const originalEnv = { ...process.env };
+      delete process.env.GITHUB_WORKSPACE;
+
+      try {
+        const options: ClaudeOptions = {};
+        const result = parseSdkOptions(options);
+
+        expect(result.sdkOptions.cwd).toBe(process.cwd());
+      } finally {
+        process.env = originalEnv;
+      }
+    });
+  });
 });
